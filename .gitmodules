@@ -3,7 +3,7 @@
 	url = https://github.com/firesim/aws-fpga-firesim
 [submodule "sw/firesim-software"]
 	path = sw/firesim-software
-	url = https://github.com/firesim/firesim-software
+	url = https://github.com/eyrie-enclave/firesim-software
 [submodule "sim/firrtl"]
 	path = sim/firrtl
 	url = https://github.com/ucb-bar/firrtl
@@ -28,3 +28,9 @@
 [submodule "deploy/workloads/Speckle"]
 	path = deploy/workloads/Speckle
 	url = https://github.com/ccelio/Speckle.git
+[submodule "sdk"]
+	path = sdk
+	url = https://github.com/eyrie-enclave/eyrie-sdk
+[submodule "runtime"]
+	path = runtime
+	url = https://github.com/eyrie-enclave/eyrie-runtime

@@ -32,10 +32,44 @@
 // |  |v|   iaddr[39:0]    | insn[31:11] |  | insn[10:0] |pr[2:0]|e|i| cause[7:0] |   tval[39:0]   |
 // +--+-+------------------+-------------+  +------------+-------+-+-+------------+----------------+
 
-#define GET_VALID(x,y) ((y >> 61) & 0x1)
-#define GET_INST(x,y) (((x >> 53) & 0x7ff) + ((y & 0x1fffff) << 11))
-#define GET_IADDR(x,y) ((y >> 21) & 0xffffffffff)
-#define GET_PRIV(x,y) ((x >> 50) & 0x7)
+#define INDEX_OF_VALID(rec_idx)	(TOTAL_WID*(rec_idx) + 125)
+#define INDEX_OF_IADDR(rec_idx) (TOTAL_WID*(rec_idx) + 85)
+#define INDEX_OF_INST(rec_idx) (TOTAL_WID*(rec_idx) + 53)
+#define INDEX_OF_PRIV(rec_idx) (TOTAL_WID*(rec_idx) + 50)
+
+#define GET_VALID(rec_idx, outbuf) get_bits(INDEX_OF_VALID(rec_idx), VALID_WID, outbuf)
+#define GET_INST(rec_idx, outbuf) get_bits(INDEX_OF_INST(rec_idx), INSN_WID, outbuf)
+#define GET_IADDR(rec_idx, outbuf) get_bits(INDEX_OF_IADDR(rec_idx), IADDR_WID, outbuf)
+#define GET_PRIV(rec_idx, outbuf) get_bits(INDEX_OF_PRIV(rec_idx), PRIV_WID, outbuf)
+//#define GET_VALID(x,y) ((y >> 61) & 0x1)
+//#define GET_INST(x,y) (((x >> 53) & 0x7ff) + ((y & 0x1fffff) << 11))
+//#define GET_IADDR(x,y) ((y >> 21) & 0xffffffffff)
+//#define GET_PRIV(x,y) ((x >> 50) & 0x7)
+
+#define BITMASK(n) ((1UL << (n)) - 1)
+uint64_t get_bits(uint64_t lsb_idx, uint64_t length, uint64_t* outbuf)
+{
+	uint64_t mask = (1 << length) - 1;
+	uint64_t msb_idx = lsb_idx + length;
+	uint64_t legnth_retrieved = 0;
+
+	uint64_t msb_buf_idx = msb_idx / 64;
+	uint64_t lsb_buf_idx = lsb_idx / 64;
+
+	uint64_t ret = 0;
+
+	uint64_t bits_to_copy = 64 - (lsb_idx % 64);
+
+	bits_to_copy = (bits_to_copy > length ? length : bits_to_copy);
+	ret = (outbuf[lsb_buf_idx] >> (lsb_idx % 64)) & BITMASK(bits_to_copy);
+
+	if(msb_buf_idx != lsb_buf_idx)
+	{
+		ret += (outbuf[msb_buf_idx] & BITMASK(length - bits_to_copy)) << bits_to_copy;
+	}
+
+	return ret;
+}
 
 tracerv_t::tracerv_t(
     simif_t *sim, std::vector<std::string> &args, TRACERVWIDGET_struct * mmio_addrs, int tracerno, long dma_addr) : endpoint_t(sim)
@@ -94,7 +128,7 @@ void tracerv_t::init() {
 #define HUMAN_READABLE
 
 #define START_MARKER	0x12fdc // main start of test-runner.riscv
-#define END_MARKER	  0x13100 // main end of test-runner.riscv
+#define END_MARKER	  0x13110 // main end of test-runner.riscv
 //#define START_MARKER 0xe000251d4c
 //#define END_MARKER 0xe000251fa8
 
@@ -106,8 +140,6 @@ void tracerv_t::tick() {
     #define QUEUE_DEPTH 6144
 
     alignas(4096) uint64_t OUTBUF[QUEUE_DEPTH * 8];
-
-    uint64_t OUTBUF[QUEUE_DEPTH * 8];
 		uint64_t mini_cycle = 0;
     if (outfull) {
         int can_write = cur_cycle >= start_cycle && cur_cycle < end_cycle;
@@ -117,29 +149,30 @@ void tracerv_t::tick() {
         if (this->tracefile && can_write) {
 #ifdef HUMAN_READABLE
             for (int i = 0; i < QUEUE_DEPTH * 8; i+=8) {
-                // Assume one hart
-                int val = GET_VALID(OUTBUF[i], OUTBUF[i+1]);
-                uint64_t iaddr = GET_IADDR(OUTBUF[i], OUTBUF[i+1]);
-								uint64_t insn = GET_INST(OUTBUF[i], OUTBUF[i+1]);
-								int priv = GET_PRIV(OUTBUF[i], OUTBUF[i+1]);
-
 								mini_cycle ++;
+								for (int rec = 0; rec <2; rec++)
+								{	
+                	int val = GET_VALID(rec, &OUTBUF[i]);
+                	uint64_t iaddr = GET_IADDR(rec, &OUTBUF[i]);
+									uint64_t insn = GET_INST(rec, &OUTBUF[i]);
+									int priv = GET_PRIV(rec, &OUTBUF[i]);
+
                 
-								if (val && (iaddr == START_MARKER || should_trace)) {
-                   if (!should_trace) {
+									if (val && (iaddr == START_MARKER || should_trace)) {
+                   	if (!should_trace) {
                        should_trace = true;
                        fprintf(this->tracefile, "========================== TRACE START ==========================\n");
                        fprintf(this->tracefile, "Cycle           PC               Instruction     Priv\n");
-                   }
+                   	}
                    
-									 fprintf(this->tracefile, "%ld, %016llx, %016llx, %d\n", cur_cycle + mini_cycle, iaddr, insn, priv);
-								}
+									 	fprintf(this->tracefile, "%ld, %016llx, %016llx, %d\n", cur_cycle + mini_cycle, iaddr, insn, priv);
+									}
 
-                if (val && iaddr == END_MARKER && should_trace) {
+                	if (val && iaddr == END_MARKER && should_trace) {
                     should_trace = false;
                     fprintf(this->tracefile, "========================== TRACE END ==========================\n");
-                }
-
+                	}
+								}
             }
 #else
             for (int i = 0; i < QUEUE_DEPTH * 8; i+=8) {
